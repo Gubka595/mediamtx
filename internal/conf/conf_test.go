@@ -69,14 +69,15 @@ func TestConfFromFile(t *testing.T) {
 			RPICameraDenoise:           "off",
 			RPICameraMetering:          "centre",
 			RPICameraFPS:               30,
-			RPICameraIDRPeriod:         60,
-			RPICameraBitrate:           1000000,
-			RPICameraProfile:           "main",
-			RPICameraLevel:             "4.1",
 			RPICameraAfMode:            "continuous",
 			RPICameraAfRange:           "normal",
 			RPICameraAfSpeed:           "normal",
 			RPICameraTextOverlay:       "%Y-%m-%d %H:%M:%S - MediaMTX",
+			RPICameraCodec:             "auto",
+			RPICameraIDRPeriod:         60,
+			RPICameraBitrate:           1000000,
+			RPICameraProfile:           "main",
+			RPICameraLevel:             "4.1",
 			RunOnDemandStartTimeout:    5 * StringDuration(time.Second),
 			RunOnDemandCloseAfter:      10 * StringDuration(time.Second),
 		}, pa)
@@ -192,6 +193,66 @@ func TestConfEncryption(t *testing.T) {
 	require.Equal(t, true, ok)
 }
 
+func TestConfDeprecatedAuth(t *testing.T) {
+	tmpf, err := createTempFile([]byte(
+		"paths:\n" +
+			"  cam:\n" +
+			"    readUser: myuser\n" +
+			"    readPass: mypass\n"))
+	require.NoError(t, err)
+	defer os.Remove(tmpf)
+
+	conf, _, err := Load(tmpf, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, AuthInternalUsers{
+		{
+			User: "any",
+			Permissions: []AuthInternalUserPermission{
+				{
+					Action: AuthActionPlayback,
+				},
+			},
+		},
+		{
+			User: "any",
+			IPs:  IPNetworks{mustParseCIDR("127.0.0.1/32"), mustParseCIDR("::1/128")},
+			Permissions: []AuthInternalUserPermission{
+				{
+					Action: AuthActionAPI,
+				},
+				{
+					Action: AuthActionMetrics,
+				},
+				{
+					Action: AuthActionPprof,
+				},
+			},
+		},
+		{
+			User: "any",
+			IPs:  IPNetworks{mustParseCIDR("0.0.0.0/0")},
+			Permissions: []AuthInternalUserPermission{
+				{
+					Action: AuthActionPublish,
+					Path:   "cam",
+				},
+			},
+		},
+		{
+			User: "myuser",
+			Pass: "mypass",
+			IPs:  IPNetworks{mustParseCIDR("0.0.0.0/0")},
+			Permissions: []AuthInternalUserPermission{
+				{
+					Action: AuthActionRead,
+					Path:   "cam",
+				},
+			},
+		},
+	}, conf.AuthInternalUsers)
+}
+
 func TestConfErrors(t *testing.T) {
 	for _, ca := range []struct {
 		name string
@@ -199,9 +260,25 @@ func TestConfErrors(t *testing.T) {
 		err  string
 	}{
 		{
+			"duplicate parameter",
+			"paths:\n" +
+				"paths:\n",
+			"yaml: unmarshal errors:\n  line 2: key \"paths\" already set in map",
+		},
+		{
 			"non existent parameter 1",
 			`invalid: param`,
 			"json: unknown field \"invalid\"",
+		},
+		{
+			"invalid readTimeout",
+			"readTimeout: 0s\n",
+			"'readTimeout' must be greater than zero",
+		},
+		{
+			"invalid writeTimeout",
+			"writeTimeout: 0s\n",
+			"'writeTimeout' must be greater than zero",
 		},
 		{
 			"invalid writeQueueSize",
@@ -280,6 +357,22 @@ func TestConfErrors(t *testing.T) {
 				"  all_others:\n" +
 				"  ~^.*$:\n",
 			`all_others, all and '~^.*$' are aliases`,
+		},
+		{
+			"playback",
+			"playback: yes\n" +
+				"paths:\n" +
+				"  my_path:\n" +
+				"    recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S",
+			`record path './recordings/%path/%Y-%m-%d_%H-%M-%S' is missing one of the` +
+				` mandatory elements for the playback server to work: %Y %m %d %H %M %S %f`,
+		},
+		{
+			"jwt claim key empty",
+			"authMethod: jwt\n" +
+				"authJWTJWKS: https://not-real.com\n" +
+				"authJWTClaimKey: \"\"",
+			"'authJWTClaimKey' is empty",
 		},
 	} {
 		t.Run(ca.name, func(t *testing.T) {

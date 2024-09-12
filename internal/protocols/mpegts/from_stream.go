@@ -21,7 +21,7 @@ func durationGoToMPEGTS(v time.Duration) int64 {
 	return int64(v.Seconds() * 90000)
 }
 
-// FromStream links a server stream to a MPEG-TS writer.
+// FromStream maps a MediaMTX stream to a MPEG-TS writer.
 func FromStream(
 	stream *stream.Stream,
 	writer *asyncwriter.Writer,
@@ -69,7 +69,7 @@ func FromStream(
 					}
 
 					sconn.SetWriteDeadline(time.Now().Add(writeTimeout))
-					err = (*w).WriteH26x(track, durationGoToMPEGTS(tunit.PTS), durationGoToMPEGTS(dts), randomAccess, tunit.AU)
+					err = (*w).WriteH265(track, durationGoToMPEGTS(tunit.PTS), durationGoToMPEGTS(dts), randomAccess, tunit.AU)
 					if err != nil {
 						return err
 					}
@@ -102,7 +102,7 @@ func FromStream(
 					}
 
 					sconn.SetWriteDeadline(time.Now().Add(writeTimeout))
-					err = (*w).WriteH26x(track, durationGoToMPEGTS(tunit.PTS), durationGoToMPEGTS(dts), idrPresent, tunit.AU)
+					err = (*w).WriteH264(track, durationGoToMPEGTS(tunit.PTS), durationGoToMPEGTS(dts), idrPresent, tunit.AU)
 					if err != nil {
 						return err
 					}
@@ -165,12 +165,7 @@ func FromStream(
 
 			case *format.Opus:
 				track := addTrack(&mcmpegts.CodecOpus{
-					ChannelCount: func() int {
-						if forma.IsStereo {
-							return 2
-						}
-						return 1
-					}(),
+					ChannelCount: forma.ChannelCount,
 				})
 
 				stream.AddReader(writer, medi, forma, func(u unit.Unit) error {
@@ -188,8 +183,13 @@ func FromStream(
 				})
 
 			case *format.MPEG4Audio:
+				co := forma.GetConfig()
+				if co == nil {
+					return fmt.Errorf("MPEG-4 audio tracks without explicit configuration are not supported")
+				}
+
 				track := addTrack(&mcmpegts.CodecMPEG4Audio{
-					Config: *forma.GetConfig(),
+					Config: *co,
 				})
 
 				stream.AddReader(writer, medi, forma, func(u unit.Unit) error {

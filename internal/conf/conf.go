@@ -15,7 +15,7 @@ import (
 
 	"github.com/bluenviron/gohlslib"
 	"github.com/bluenviron/gortsplib/v4"
-	"github.com/bluenviron/gortsplib/v4/pkg/headers"
+	"github.com/bluenviron/gortsplib/v4/pkg/auth"
 
 	"github.com/bluenviron/mediamtx/internal/conf/decrypt"
 	"github.com/bluenviron/mediamtx/internal/conf/env"
@@ -47,7 +47,7 @@ func firstThatExists(paths []string) string {
 	return ""
 }
 
-func contains(list []headers.AuthMethod, item headers.AuthMethod) bool {
+func contains(list []auth.ValidateMethod, item auth.ValidateMethod) bool {
 	for _, i := range list {
 		if i == item {
 			return true
@@ -94,29 +94,64 @@ func mustParseCIDR(v string) net.IPNet {
 	return *ne
 }
 
-func credentialIsNotEmpty(c *Credential) bool {
-	return c != nil && *c != ""
-}
+func anyPathHasDeprecatedCredentials(pathDefaults Path, paths map[string]*OptionalPath) bool {
+	if pathDefaults.PublishUser != nil ||
+		pathDefaults.PublishPass != nil ||
+		pathDefaults.PublishIPs != nil ||
+		pathDefaults.ReadUser != nil ||
+		pathDefaults.ReadPass != nil ||
+		pathDefaults.ReadIPs != nil {
+		return true
+	}
 
-func ipNetworkIsNotEmpty(i *IPNetworks) bool {
-	return i != nil && len(*i) != 0
-}
-
-func anyPathHasDeprecatedCredentials(paths map[string]*OptionalPath) bool {
 	for _, pa := range paths {
 		if pa != nil {
 			rva := reflect.ValueOf(pa.Values).Elem()
-			if credentialIsNotEmpty(rva.FieldByName("PublishUser").Interface().(*Credential)) ||
-				credentialIsNotEmpty(rva.FieldByName("PublishPass").Interface().(*Credential)) ||
-				ipNetworkIsNotEmpty(rva.FieldByName("PublishIPs").Interface().(*IPNetworks)) ||
-				credentialIsNotEmpty(rva.FieldByName("ReadUser").Interface().(*Credential)) ||
-				credentialIsNotEmpty(rva.FieldByName("ReadPass").Interface().(*Credential)) ||
-				ipNetworkIsNotEmpty(rva.FieldByName("ReadIPs").Interface().(*IPNetworks)) {
+			if rva.FieldByName("PublishUser").Interface().(*Credential) != nil ||
+				rva.FieldByName("PublishPass").Interface().(*Credential) != nil ||
+				rva.FieldByName("PublishIPs").Interface().(*IPNetworks) != nil ||
+				rva.FieldByName("ReadUser").Interface().(*Credential) != nil ||
+				rva.FieldByName("ReadPass").Interface().(*Credential) != nil ||
+				rva.FieldByName("ReadIPs").Interface().(*IPNetworks) != nil {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+var defaultAuthInternalUsers = AuthInternalUsers{
+	{
+		User: "any",
+		Pass: "",
+		Permissions: []AuthInternalUserPermission{
+			{
+				Action: AuthActionPublish,
+			},
+			{
+				Action: AuthActionRead,
+			},
+			{
+				Action: AuthActionPlayback,
+			},
+		},
+	},
+	{
+		User: "any",
+		Pass: "",
+		IPs:  IPNetworks{mustParseCIDR("127.0.0.1/32"), mustParseCIDR("::1/128")},
+		Permissions: []AuthInternalUserPermission{
+			{
+				Action: AuthActionAPI,
+			},
+			{
+				Action: AuthActionMetrics,
+			},
+			{
+				Action: AuthActionPprof,
+			},
+		},
+	},
 }
 
 // Conf is a configuration.
@@ -142,6 +177,7 @@ type Conf struct {
 	ExternalAuthenticationURL *string                     `json:"externalAuthenticationURL,omitempty"` // deprecated
 	AuthHTTPExclude           AuthInternalUserPermissions `json:"authHTTPExclude"`
 	AuthJWTJWKS               string                      `json:"authJWTJWKS"`
+	AuthJWTClaimKey           string                      `json:"authJWTClaimKey"`
 
 	// Control API
 	API               bool       `json:"api"`
@@ -221,6 +257,7 @@ type Conf struct {
 	HLSPartDuration    StringDuration `json:"hlsPartDuration"`
 	HLSSegmentMaxSize  StringSize     `json:"hlsSegmentMaxSize"`
 	HLSDirectory       string         `json:"hlsDirectory"`
+	HLSMuxerCloseAfter StringDuration `json:"hlsMuxerCloseAfter"`
 
 	// WebRTC server
 	WebRTC                      bool             `json:"webrtc"`
@@ -237,6 +274,8 @@ type Conf struct {
 	WebRTCIPsFromInterfacesList []string         `json:"webrtcIPsFromInterfacesList"`
 	WebRTCAdditionalHosts       []string         `json:"webrtcAdditionalHosts"`
 	WebRTCICEServers2           WebRTCICEServers `json:"webrtcICEServers2"`
+	WebRTCHandshakeTimeout      StringDuration   `json:"webrtcHandshakeTimeout"`
+	WebRTCTrackGatherTimeout    StringDuration   `json:"webrtcTrackGatherTimeout"`
 	WebRTCICEUDPMuxAddress      *string          `json:"webrtcICEUDPMuxAddress,omitempty"`  // deprecated
 	WebRTCICETCPMuxAddress      *string          `json:"webrtcICETCPMuxAddress,omitempty"`  // deprecated
 	WebRTCICEHostNAT1To1IPs     *[]string        `json:"webrtcICEHostNAT1To1IPs,omitempty"` // deprecated
@@ -273,39 +312,7 @@ func (conf *Conf) setDefaults() {
 	conf.UDPMaxPayloadSize = 1472
 
 	// Authentication
-	conf.AuthInternalUsers = []AuthInternalUser{
-		{
-			User: "any",
-			Pass: "",
-			Permissions: []AuthInternalUserPermission{
-				{
-					Action: AuthActionPublish,
-				},
-				{
-					Action: AuthActionRead,
-				},
-				{
-					Action: AuthActionPlayback,
-				},
-			},
-		},
-		{
-			User: "any",
-			Pass: "",
-			IPs:  IPNetworks{mustParseCIDR("127.0.0.1/32"), mustParseCIDR("::1/128")},
-			Permissions: []AuthInternalUserPermission{
-				{
-					Action: AuthActionAPI,
-				},
-				{
-					Action: AuthActionMetrics,
-				},
-				{
-					Action: AuthActionPprof,
-				},
-			},
-		},
-	}
+	conf.AuthInternalUsers = defaultAuthInternalUsers
 	conf.AuthHTTPExclude = []AuthInternalUserPermission{
 		{
 			Action: AuthActionAPI,
@@ -317,6 +324,7 @@ func (conf *Conf) setDefaults() {
 			Action: AuthActionPprof,
 		},
 	}
+	conf.AuthJWTClaimKey = "mediamtx_permissions"
 
 	// Control API
 	conf.APIAddress = ":9997"
@@ -358,7 +366,7 @@ func (conf *Conf) setDefaults() {
 	conf.MulticastRTCPPort = 8003
 	conf.ServerKey = "server.key"
 	conf.ServerCert = "server.crt"
-	conf.RTSPAuthMethods = RTSPAuthMethods{headers.AuthBasic}
+	conf.RTSPAuthMethods = RTSPAuthMethods{auth.ValidateMethodBasic}
 
 	// RTMP server
 	conf.RTMP = true
@@ -378,6 +386,7 @@ func (conf *Conf) setDefaults() {
 	conf.HLSSegmentDuration = 1 * StringDuration(time.Second)
 	conf.HLSPartDuration = 200 * StringDuration(time.Millisecond)
 	conf.HLSSegmentMaxSize = 50 * 1024 * 1024
+	conf.HLSMuxerCloseAfter = 60 * StringDuration(time.Second)
 
 	// WebRTC server
 	conf.WebRTC = true
@@ -390,6 +399,8 @@ func (conf *Conf) setDefaults() {
 	conf.WebRTCIPsFromInterfacesList = []string{}
 	conf.WebRTCAdditionalHosts = []string{}
 	conf.WebRTCICEServers2 = []WebRTCICEServer{}
+	conf.WebRTCHandshakeTimeout = 10 * StringDuration(time.Second)
+	conf.WebRTCTrackGatherTimeout = 2 * StringDuration(time.Second)
 
 	// SRT server
 	conf.SRT = true
@@ -484,6 +495,12 @@ func (conf Conf) Clone() *Conf {
 func (conf *Conf) Validate() error {
 	// General
 
+	if conf.ReadTimeout <= 0 {
+		return fmt.Errorf("'readTimeout' must be greater than zero")
+	}
+	if conf.WriteTimeout <= 0 {
+		return fmt.Errorf("'writeTimeout' must be greater than zero")
+	}
 	if conf.ReadBufferCount != nil {
 		conf.WriteQueueSize = *conf.ReadBufferCount
 	}
@@ -511,17 +528,15 @@ func (conf *Conf) Validate() error {
 		return fmt.Errorf("'authJWTJWKS' must be a HTTP URL")
 	}
 	deprecatedCredentialsMode := false
-	if credentialIsNotEmpty(conf.PathDefaults.PublishUser) ||
-		credentialIsNotEmpty(conf.PathDefaults.PublishPass) ||
-		ipNetworkIsNotEmpty(conf.PathDefaults.PublishIPs) ||
-		credentialIsNotEmpty(conf.PathDefaults.ReadUser) ||
-		credentialIsNotEmpty(conf.PathDefaults.ReadPass) ||
-		ipNetworkIsNotEmpty(conf.PathDefaults.ReadIPs) ||
-		anyPathHasDeprecatedCredentials(conf.OptionalPaths) {
+	if anyPathHasDeprecatedCredentials(conf.PathDefaults, conf.OptionalPaths) {
+		if conf.AuthInternalUsers != nil && !reflect.DeepEqual(conf.AuthInternalUsers, defaultAuthInternalUsers) {
+			return fmt.Errorf("authInternalUsers and legacy credentials " +
+				"(publishUser, publishPass, publishIPs, readUser, readPass, readIPs) cannot be used together")
+		}
+
 		conf.AuthInternalUsers = []AuthInternalUser{
 			{
 				User: "any",
-				Pass: "",
 				Permissions: []AuthInternalUserPermission{
 					{
 						Action: AuthActionPlayback,
@@ -530,7 +545,6 @@ func (conf *Conf) Validate() error {
 			},
 			{
 				User: "any",
-				Pass: "",
 				IPs:  IPNetworks{mustParseCIDR("127.0.0.1/32"), mustParseCIDR("::1/128")},
 				Permissions: []AuthInternalUserPermission{
 					{
@@ -557,6 +571,9 @@ func (conf *Conf) Validate() error {
 		if conf.AuthJWTJWKS == "" {
 			return fmt.Errorf("'authJWTJWKS' is empty")
 		}
+		if conf.AuthJWTClaimKey == "" {
+			return fmt.Errorf("'authJWTClaimKey' is empty")
+		}
 	}
 
 	// RTSP
@@ -575,7 +592,7 @@ func (conf *Conf) Validate() error {
 	if conf.AuthMethods != nil {
 		conf.RTSPAuthMethods = *conf.AuthMethods
 	}
-	if contains(conf.RTSPAuthMethods, headers.AuthDigestMD5) {
+	if contains(conf.RTSPAuthMethods, auth.ValidateMethodDigestMD5) {
 		if conf.AuthMethod != AuthMethodInternal {
 			return fmt.Errorf("when RTSP digest is enabled, the only supported auth method is 'internal'")
 		}
@@ -648,6 +665,7 @@ func (conf *Conf) Validate() error {
 	}
 
 	// Record (deprecated)
+
 	if conf.Record != nil {
 		conf.PathDefaults.Record = *conf.Record
 	}
@@ -756,9 +774,8 @@ func (conf *Conf) PatchPath(name string, optional2 *OptionalPath) error {
 
 // ReplacePath replaces a path.
 func (conf *Conf) ReplacePath(name string, optional2 *OptionalPath) error {
-	_, ok := conf.OptionalPaths[name]
-	if !ok {
-		return ErrPathNotFound
+	if conf.OptionalPaths == nil {
+		conf.OptionalPaths = make(map[string]*OptionalPath)
 	}
 
 	conf.OptionalPaths[name] = optional2

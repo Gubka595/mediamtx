@@ -74,36 +74,41 @@ func checkError(t *testing.T, msg string, body io.Reader) {
 	require.Equal(t, map[string]interface{}{"error": msg}, resErr)
 }
 
-func TestPaginate(t *testing.T) {
-	items := make([]int, 5)
-	for i := 0; i < 5; i++ {
-		items[i] = i
+func TestPreflightRequest(t *testing.T) {
+	api := API{
+		Address:     "localhost:9997",
+		AllowOrigin: "*",
+		ReadTimeout: conf.StringDuration(10 * time.Second),
+		AuthManager: test.NilAuthManager,
+		Parent:      &testParent{},
 	}
-
-	pageCount, err := paginate(&items, "1", "1")
+	err := api.Initialize()
 	require.NoError(t, err)
-	require.Equal(t, 5, pageCount)
-	require.Equal(t, []int{1}, items)
+	defer api.Close()
 
-	items = make([]int, 5)
-	for i := 0; i < 5; i++ {
-		items[i] = i
-	}
+	tr := &http.Transport{}
+	defer tr.CloseIdleConnections()
+	hc := &http.Client{Transport: tr}
 
-	pageCount, err = paginate(&items, "3", "2")
+	req, err := http.NewRequest(http.MethodOptions, "http://localhost:9997", nil)
 	require.NoError(t, err)
-	require.Equal(t, 2, pageCount)
-	require.Equal(t, []int{}, items)
 
-	items = make([]int, 6)
-	for i := 0; i < 6; i++ {
-		items[i] = i
-	}
+	req.Header.Add("Access-Control-Request-Method", "GET")
 
-	pageCount, err = paginate(&items, "4", "1")
+	res, err := hc.Do(req)
 	require.NoError(t, err)
-	require.Equal(t, 2, pageCount)
-	require.Equal(t, []int{4, 5}, items)
+	defer res.Body.Close()
+
+	require.Equal(t, http.StatusNoContent, res.StatusCode)
+
+	byts, err := io.ReadAll(res.Body)
+	require.NoError(t, err)
+
+	require.Equal(t, "*", res.Header.Get("Access-Control-Allow-Origin"))
+	require.Equal(t, "true", res.Header.Get("Access-Control-Allow-Credentials"))
+	require.Equal(t, "OPTIONS, GET, POST, PATCH, DELETE", res.Header.Get("Access-Control-Allow-Methods"))
+	require.Equal(t, "Authorization, Content-Type", res.Header.Get("Access-Control-Allow-Headers"))
+	require.Equal(t, byts, []byte{})
 }
 
 func TestConfigAuth(t *testing.T) {
@@ -279,16 +284,14 @@ func TestConfigPathDefaultsPatch(t *testing.T) {
 
 	httpRequest(t, hc, http.MethodPatch, "http://localhost:9997/v3/config/pathdefaults/patch",
 		map[string]interface{}{
-			"readUser": "myuser",
-			"readPass": "mypass",
+			"recordFormat": "fmp4",
 		}, nil)
 
 	time.Sleep(500 * time.Millisecond)
 
 	var out map[string]interface{}
 	httpRequest(t, hc, http.MethodGet, "http://localhost:9997/v3/config/pathdefaults/get", nil, &out)
-	require.Equal(t, "myuser", out["readUser"])
-	require.Equal(t, "mypass", out["readPass"])
+	require.Equal(t, "fmp4", out["recordFormat"])
 }
 
 func TestConfigPathsList(t *testing.T) {
@@ -515,6 +518,38 @@ func TestConfigPathsReplace(t *testing.T) { //nolint:dupl
 	require.Equal(t, false, out["rpiCameraVFlip"])
 }
 
+func TestConfigPathsReplaceNonExisting(t *testing.T) { //nolint:dupl
+	cnf := tempConf(t, "api: yes\n")
+
+	api := API{
+		Address:     "localhost:9997",
+		ReadTimeout: conf.StringDuration(10 * time.Second),
+		Conf:        cnf,
+		AuthManager: test.NilAuthManager,
+		Parent:      &testParent{},
+	}
+	err := api.Initialize()
+	require.NoError(t, err)
+	defer api.Close()
+
+	tr := &http.Transport{}
+	defer tr.CloseIdleConnections()
+	hc := &http.Client{Transport: tr}
+
+	httpRequest(t, hc, http.MethodPost, "http://localhost:9997/v3/config/paths/replace/my/path",
+		map[string]interface{}{
+			"source":         "rtsp://127.0.0.1:9998/mypath",
+			"sourceOnDemand": true,
+		}, nil)
+
+	var out map[string]interface{}
+	httpRequest(t, hc, http.MethodGet, "http://localhost:9997/v3/config/paths/get/my/path", nil, &out)
+	require.Equal(t, "rtsp://127.0.0.1:9998/mypath", out["source"])
+	require.Equal(t, true, out["sourceOnDemand"])
+	require.Equal(t, nil, out["disablePublisherOverride"])
+	require.Equal(t, false, out["rpiCameraVFlip"])
+}
+
 func TestConfigPathsDelete(t *testing.T) {
 	cnf := tempConf(t, "api: yes\n")
 
@@ -560,6 +595,7 @@ func TestRecordingsList(t *testing.T) {
 	cnf := tempConf(t, "pathDefaults:\n"+
 		"  recordPath: "+filepath.Join(dir, "%path/%Y-%m-%d_%H-%M-%S-%f")+"\n"+
 		"paths:\n"+
+		"  mypath1:\n"+
 		"  all_others:\n")
 
 	api := API{

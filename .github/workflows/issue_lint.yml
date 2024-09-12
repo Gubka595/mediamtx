@@ -6,10 +6,10 @@ on:
 
 jobs:
   issue_lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - uses: actions/github-script@v6
       with:

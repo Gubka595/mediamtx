@@ -3,4 +3,5 @@
 /binaries
 /coverage*.txt
 /apidocs/*.html
-**/hls.min.js
+/internal/servers/hls/hls.min.js
+/internal/staticsources/rpicamera/mtxrpicam_*

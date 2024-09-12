@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +24,7 @@ import (
 
 	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/protocols/rtmp"
-	"github.com/bluenviron/mediamtx/internal/protocols/webrtc"
+	"github.com/bluenviron/mediamtx/internal/protocols/whip"
 	"github.com/bluenviron/mediamtx/internal/test"
 )
 
@@ -105,37 +104,28 @@ func (sh *testServer) OnPlay(ctx *gortsplib.ServerHandlerOnPlayCtx) (*base.Respo
 var _ defs.Path = &path{}
 
 func TestPathRunOnDemand(t *testing.T) {
-	onDemandFile := filepath.Join(os.TempDir(), "ondemand")
-	onUnDemandFile := filepath.Join(os.TempDir(), "onundemand")
+	onDemand := filepath.Join(os.TempDir(), "on_demand")
+	onUnDemand := filepath.Join(os.TempDir(), "on_undemand")
 
 	srcFile := filepath.Join(os.TempDir(), "ondemand.go")
 	err := os.WriteFile(srcFile,
-		[]byte(strings.ReplaceAll(runOnDemandSampleScript, "ON_DEMAND_FILE", onDemandFile)), 0o644)
+		[]byte(strings.ReplaceAll(runOnDemandSampleScript, "ON_DEMAND_FILE", onDemand)), 0o644)
 	require.NoError(t, err)
-
-	execFile := filepath.Join(os.TempDir(), "ondemand_cmd")
-	cmd := exec.Command("go", "build", "-o", execFile, srcFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
-	require.NoError(t, err)
-	defer os.Remove(execFile)
-
-	os.Remove(srcFile)
+	defer os.Remove(srcFile)
 
 	for _, ca := range []string{"describe", "setup", "describe and setup"} {
 		t.Run(ca, func(t *testing.T) {
-			defer os.Remove(onDemandFile)
-			defer os.Remove(onUnDemandFile)
+			defer os.Remove(onDemand)
+			defer os.Remove(onUnDemand)
 
 			p1, ok := newInstance(fmt.Sprintf("rtmp: no\n"+
 				"hls: no\n"+
 				"webrtc: no\n"+
 				"paths:\n"+
 				"  '~^(on)demand$':\n"+
-				"    runOnDemand: %s\n"+
+				"    runOnDemand: go run %s\n"+
 				"    runOnDemandCloseAfter: 1s\n"+
-				"    runOnUnDemand: touch %s\n", execFile, onUnDemandFile))
+				"    runOnUnDemand: touch %s\n", srcFile, onUnDemand))
 			require.Equal(t, true, ok)
 			defer p1.Close()
 
@@ -204,14 +194,14 @@ func TestPathRunOnDemand(t *testing.T) {
 			}()
 
 			for {
-				_, err := os.Stat(onUnDemandFile)
+				_, err := os.Stat(onUnDemand)
 				if err == nil {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
 
-			_, err := os.Stat(onDemandFile)
+			_, err := os.Stat(onDemand)
 			require.NoError(t, err)
 		})
 	}
@@ -220,11 +210,11 @@ func TestPathRunOnDemand(t *testing.T) {
 func TestPathRunOnConnect(t *testing.T) {
 	for _, ca := range []string{"rtsp", "rtmp", "srt"} {
 		t.Run(ca, func(t *testing.T) {
-			onConnectFile := filepath.Join(os.TempDir(), "onconnect")
-			defer os.Remove(onConnectFile)
+			onConnect := filepath.Join(os.TempDir(), "on_connect")
+			defer os.Remove(onConnect)
 
-			onDisconnectFile := filepath.Join(os.TempDir(), "ondisconnect")
-			defer os.Remove(onDisconnectFile)
+			onDisconnect := filepath.Join(os.TempDir(), "on_disconnect")
+			defer os.Remove(onDisconnect)
 
 			func() {
 				p, ok := newInstance(fmt.Sprintf(
@@ -232,7 +222,7 @@ func TestPathRunOnConnect(t *testing.T) {
 						"  test:\n"+
 						"runOnConnect: touch %s\n"+
 						"runOnDisconnect: touch %s\n",
-					onConnectFile, onDisconnectFile))
+					onConnect, onDisconnect))
 				require.Equal(t, true, ok)
 				defer p.Close()
 
@@ -273,21 +263,21 @@ func TestPathRunOnConnect(t *testing.T) {
 				time.Sleep(500 * time.Millisecond)
 			}()
 
-			_, err := os.Stat(onConnectFile)
+			_, err := os.Stat(onConnect)
 			require.NoError(t, err)
 
-			_, err = os.Stat(onDisconnectFile)
+			_, err = os.Stat(onDisconnect)
 			require.NoError(t, err)
 		})
 	}
 }
 
 func TestPathRunOnReady(t *testing.T) {
-	onReadyFile := filepath.Join(os.TempDir(), "onready")
-	defer os.Remove(onReadyFile)
+	onReady := filepath.Join(os.TempDir(), "on_ready")
+	defer os.Remove(onReady)
 
-	onNotReadyFile := filepath.Join(os.TempDir(), "onunready")
-	defer os.Remove(onNotReadyFile)
+	onNotReady := filepath.Join(os.TempDir(), "on_unready")
+	defer os.Remove(onNotReady)
 
 	func() {
 		p, ok := newInstance(fmt.Sprintf("rtmp: no\n"+
@@ -297,7 +287,7 @@ func TestPathRunOnReady(t *testing.T) {
 			"  test:\n"+
 			"    runOnReady: sh -c 'echo \"$MTX_PATH $MTX_QUERY\" > %s'\n"+
 			"    runOnNotReady: sh -c 'echo \"$MTX_PATH $MTX_QUERY\" > %s'\n",
-			onReadyFile, onNotReadyFile))
+			onReady, onNotReady))
 		require.Equal(t, true, ok)
 		defer p.Close()
 
@@ -312,11 +302,11 @@ func TestPathRunOnReady(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}()
 
-	byts, err := os.ReadFile(onReadyFile)
+	byts, err := os.ReadFile(onReady)
 	require.NoError(t, err)
 	require.Equal(t, "test query=value\n", string(byts))
 
-	byts, err = os.ReadFile(onNotReadyFile)
+	byts, err = os.ReadFile(onNotReady)
 	require.NoError(t, err)
 	require.Equal(t, "test query=value\n", string(byts))
 }
@@ -324,11 +314,11 @@ func TestPathRunOnReady(t *testing.T) {
 func TestPathRunOnRead(t *testing.T) {
 	for _, ca := range []string{"rtsp", "rtmp", "srt", "webrtc"} {
 		t.Run(ca, func(t *testing.T) {
-			onReadFile := filepath.Join(os.TempDir(), "onread")
-			defer os.Remove(onReadFile)
+			onRead := filepath.Join(os.TempDir(), "on_read")
+			defer os.Remove(onRead)
 
-			onUnreadFile := filepath.Join(os.TempDir(), "onunread")
-			defer os.Remove(onUnreadFile)
+			onUnread := filepath.Join(os.TempDir(), "on_unread")
+			defer os.Remove(onUnread)
 
 			func() {
 				p, ok := newInstance(fmt.Sprintf(
@@ -336,7 +326,7 @@ func TestPathRunOnRead(t *testing.T) {
 						"  test:\n"+
 						"    runOnRead: sh -c 'echo \"$MTX_PATH $MTX_QUERY\" > %s'\n"+
 						"    runOnUnread: sh -c 'echo \"$MTX_PATH $MTX_QUERY\" > %s'\n",
-					onReadFile, onUnreadFile))
+					onRead, onUnread))
 				require.Equal(t, true, ok)
 				defer p.Close()
 
@@ -404,7 +394,7 @@ func TestPathRunOnRead(t *testing.T) {
 					u, err := url.Parse("http://localhost:8889/test/whep?query=value")
 					require.NoError(t, err)
 
-					c := &webrtc.WHIPClient{
+					c := &whip.Client{
 						HTTPClient: hc,
 						URL:        u,
 						Log:        test.NilLogger,
@@ -449,15 +439,77 @@ func TestPathRunOnRead(t *testing.T) {
 				time.Sleep(500 * time.Millisecond)
 			}()
 
-			byts, err := os.ReadFile(onReadFile)
+			byts, err := os.ReadFile(onRead)
 			require.NoError(t, err)
 			require.Equal(t, "test query=value\n", string(byts))
 
-			byts, err = os.ReadFile(onUnreadFile)
+			byts, err = os.ReadFile(onUnread)
 			require.NoError(t, err)
 			require.Equal(t, "test query=value\n", string(byts))
 		})
 	}
+}
+
+func TestPathRunOnRecordSegment(t *testing.T) {
+	onRecordSegmentCreate := filepath.Join(os.TempDir(), "on_record_segment_create")
+	defer os.Remove(onRecordSegmentCreate)
+
+	onRecordSegmentComplete := filepath.Join(os.TempDir(), "on_record_segment_complete")
+	defer os.Remove(onRecordSegmentComplete)
+
+	recordDir, err := os.MkdirTemp("", "rtsp-path-record")
+	require.NoError(t, err)
+	defer os.RemoveAll(recordDir)
+
+	func() {
+		p, ok := newInstance("record: yes\n" +
+			"recordPath: " + filepath.Join(recordDir, "%path/%Y-%m-%d_%H-%M-%S-%f") + "\n" +
+			"paths:\n" +
+			"  test:\n" +
+			"    runOnRecordSegmentCreate: " +
+			"sh -c 'echo \"$MTX_SEGMENT_PATH\" > " + onRecordSegmentCreate + "'\n" +
+			"    runOnRecordSegmentComplete: " +
+			"sh -c 'echo \"$MTX_SEGMENT_PATH $MTX_SEGMENT_DURATION\" > " + onRecordSegmentComplete + "'\n")
+		require.Equal(t, true, ok)
+		defer p.Close()
+
+		media0 := test.UniqueMediaH264()
+
+		source := gortsplib.Client{}
+
+		err = source.StartRecording(
+			"rtsp://localhost:8554/test",
+			&description.Session{Medias: []*description.Media{media0}})
+		require.NoError(t, err)
+		defer source.Close()
+
+		for i := 0; i < 4; i++ {
+			err = source.WritePacketRTP(media0, &rtp.Packet{
+				Header: rtp.Header{
+					Version:        2,
+					Marker:         true,
+					PayloadType:    96,
+					SequenceNumber: 1123 + uint16(i),
+					Timestamp:      45343 + 90000*uint32(i),
+					SSRC:           563423,
+				},
+				Payload: []byte{5},
+			})
+			require.NoError(t, err)
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}()
+
+	byts, err := os.ReadFile(onRecordSegmentCreate)
+	require.NoError(t, err)
+	require.Equal(t, true, strings.HasPrefix(string(byts), recordDir))
+
+	byts, err = os.ReadFile(onRecordSegmentComplete)
+	require.NoError(t, err)
+	parts := strings.Split(string(byts[:len(byts)-1]), " ")
+	require.Equal(t, true, strings.HasPrefix(parts[0], recordDir))
+	require.Equal(t, "3", parts[1])
 }
 
 func TestPathMaxReaders(t *testing.T) {
@@ -638,13 +690,14 @@ func TestPathFallback(t *testing.T) {
 	}
 }
 
-func TestPathSourceRegexp(t *testing.T) {
+func TestPathResolveSource(t *testing.T) {
 	var stream *gortsplib.ServerStream
 
 	s := gortsplib.Server{
 		Handler: &testServer{
 			onDescribe: func(ctx *gortsplib.ServerHandlerOnDescribeCtx,
 			) (*base.Response, *gortsplib.ServerStream, error) {
+				require.Equal(t, "key=val", ctx.Query)
 				require.Equal(t, "/a", ctx.Path)
 				return &base.Response{
 					StatusCode: base.StatusOK,
@@ -674,7 +727,7 @@ func TestPathSourceRegexp(t *testing.T) {
 	p, ok := newInstance(
 		"paths:\n" +
 			"  '~^test_(.+)$':\n" +
-			"    source: rtsp://127.0.0.1:8555/$G1\n" +
+			"    source: rtsp://127.0.0.1:8555/$G1?$MTX_QUERY\n" +
 			"    sourceOnDemand: yes\n" +
 			"  'all':\n")
 	require.Equal(t, true, ok)
@@ -682,7 +735,7 @@ func TestPathSourceRegexp(t *testing.T) {
 
 	reader := gortsplib.Client{}
 
-	u, err := base.ParseURL("rtsp://127.0.0.1:8554/test_a")
+	u, err := base.ParseURL("rtsp://127.0.0.1:8554/test_a?key=val")
 	require.NoError(t, err)
 
 	err = reader.Start(u.Scheme, u.Host)

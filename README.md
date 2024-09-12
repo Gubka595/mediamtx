@@ -22,12 +22,12 @@ Live streams can be published to the server with:
 |--------|--------|------------|------------|
 |[SRT clients](#srt-clients)||H265, H264, MPEG-4 Video (H263, Xvid), MPEG-1/2 Video|Opus, MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), AC-3|
 |[SRT cameras and servers](#srt-cameras-and-servers)||H265, H264, MPEG-4 Video (H263, Xvid), MPEG-1/2 Video|Opus, MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), AC-3|
-|[WebRTC clients](#webrtc-clients)|Browser-based, WHIP|AV1, VP9, VP8, H264|Opus, G722, G711 (PCMA, PCMU)|
-|[WebRTC servers](#webrtc-servers)|WHEP|AV1, VP9, VP8, H264|Opus, G722, G711 (PCMA, PCMU)|
+|[WebRTC clients](#webrtc-clients)|Browser-based, WHIP|AV1, VP9, VP8, H265, H264|Opus, G722, G711 (PCMA, PCMU)|
+|[WebRTC servers](#webrtc-servers)|WHEP|AV1, VP9, VP8, H265, H264|Opus, G722, G711 (PCMA, PCMU)|
 |[RTSP clients](#rtsp-clients)|UDP, TCP, RTSPS|AV1, VP9, VP8, H265, H264, MPEG-4 Video (H263, Xvid), MPEG-1/2 Video, M-JPEG and any RTP-compatible codec|Opus, MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), AC-3, G726, G722, G711 (PCMA, PCMU), LPCM and any RTP-compatible codec|
 |[RTSP cameras and servers](#rtsp-cameras-and-servers)|UDP, UDP-Multicast, TCP, RTSPS|AV1, VP9, VP8, H265, H264, MPEG-4 Video (H263, Xvid), MPEG-1/2 Video, M-JPEG and any RTP-compatible codec|Opus, MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), AC-3, G726, G722, G711 (PCMA, PCMU), LPCM and any RTP-compatible codec|
 |[RTMP clients](#rtmp-clients)|RTMP, RTMPS, Enhanced RTMP|AV1, VP9, H265, H264|MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), G711 (PCMA, PCMU), LPCM|
-|[RTMP cameras and servers](#rtmp-cameras-and-servers)|RTMP, RTMPS, Enhanced RTMP|H264|MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3)|
+|[RTMP cameras and servers](#rtmp-cameras-and-servers)|RTMP, RTMPS, Enhanced RTMP|AV1, VP9, H265, H264|MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), G711 (PCMA, PCMU), LPCM|
 |[HLS cameras and servers](#hls-cameras-and-servers)|Low-Latency HLS, MP4-based HLS, legacy HLS|AV1, VP9, H265, H264|Opus, MPEG-4 Audio (AAC)|
 |[UDP/MPEG-TS](#udpmpeg-ts)|Unicast, broadcast, multicast|H265, H264, MPEG-4 Video (H263, Xvid), MPEG-1/2 Video|Opus, MPEG-4 Audio (AAC), MPEG-1/2 Audio (MP3), AC-3|
 |[Raspberry Pi Cameras](#raspberry-pi-cameras)||H264||
@@ -134,7 +134,8 @@ _rtsp-simple-server_ has been rebranded as _MediaMTX_. The reason is pretty obvi
   * [SRT-specific features](#srt-specific-features)
     * [Standard stream ID syntax](#standard-stream-id-syntax)
   * [WebRTC-specific features](#webrtc-specific-features)
-    * [Connectivity issues](#connectivity-issues)
+    * [Authenticating with WHIP/WHEP](#authenticating-with-whipwhep)
+    * [Solving WebRTC connectivity issues](#solving-webrtc-connectivity-issues)
   * [RTSP-specific features](#rtsp-specific-features)
     * [Transport protocols](#transport-protocols)
     * [Encryption](#encryption)
@@ -143,7 +144,6 @@ _rtsp-simple-server_ has been rebranded as _MediaMTX_. The reason is pretty obvi
     * [Encryption](#encryption-1)
 * [Compile from source](#compile-from-source)
   * [Standard](#standard)
-  * [Raspberry Pi](#raspberry-pi)
   * [OpenWrt](#openwrt-1)
   * [Cross compile](#cross-compile)
   * [Compile for all supported platforms](#compile-for-all-supported-platforms)
@@ -338,6 +338,7 @@ Latest versions of OBS Studio can publish to the server with the [WebRTC / WHIP 
 
 * Service: `WHIP`
 * Server: `http://localhost:8889/mystream/whip`
+* Bearer Token: `myuser:mypass` (if internal authentication is enabled) or JWT (if JWT-based authentication is enabled)
 
 Save the configuration and click `Start streaming`.
 
@@ -470,20 +471,20 @@ The resulting stream will be available in path `/cam`.
 
 _MediaMTX_ natively supports the Raspberry Pi Camera, enabling high-quality and low-latency video streaming from the camera to any user, for any purpose. There are a couple of requirements:
 
-1. The server must run on a Raspberry Pi, with Raspberry Pi OS bullseye or newer as operative system. Both 32 bit and 64 bit operative systems are supported.
+1. The server must run on a Raspberry Pi, with one of the following operating systems:
 
-2. Make sure that the legacy camera stack is disabled. Type `sudo raspi-config`, then go to `Interfacing options`, `enable/disable legacy camera support`, choose `no`. Reboot the system.
+   * Raspberry Pi OS Bookworm
+   * Raspberry Pi OS Bullseye
+
+   Both 32 bit and 64 bit architectures are supported.
+
+2. If you are using Raspberry Pi OS Bullseye, make sure that the legacy camera stack is disabled. Type `sudo raspi-config`, then go to `Interfacing options`, `enable/disable legacy camera support`, choose `no`. Reboot the system.
 
 If you want to run the standard (non-Docker) version of the server:
 
-1. Make sure that the following packages are installed:
+1. Download the server executable. If you're using 64-bit version of the operative system, make sure to pick the `arm64` variant.
 
-   * `libcamera0` (&ge; 0.0.5)
-   * `libfreetype6`
-
-2. download the server executable. If you're using 64-bit version of the operative system, make sure to pick the `arm64` variant.
-
-3. edit `mediamtx.yml` and replace everything inside section `paths` with the following content:
+2. Edit `mediamtx.yml` and replace everything inside section `paths` with the following content:
 
    ```yml
    paths:
@@ -493,7 +494,7 @@ If you want to run the standard (non-Docker) version of the server:
 
 The resulting stream will be available in path `/cam`.
 
-If you want to run the server inside Docker, you need to use the `latest-rpi` image (that already contains required libraries) and launch the container with some additional flags:
+If you want to run the server inside Docker, you need to use the `latest-rpi` image and launch the container with some additional flags:
 
 ```sh
 docker run --rm -it \
@@ -505,7 +506,7 @@ docker run --rm -it \
 bluenviron/mediamtx:latest-rpi
 ```
 
-Be aware that the Docker image is not compatible with cameras that requires a custom `libcamera` (like some ArduCam products), since it comes with a standard `libcamera` included.
+Be aware that the server is not compatible with cameras that requires a custom `libcamera` (like some ArduCam products), since it comes with a bundled `libcamera`. If you want to use a custom one, you can [compile from source](#compile-from-source).
 
 Camera settings can be changed by using the `rpiCamera*` parameters:
 
@@ -542,19 +543,20 @@ default:CARD=U0x46d0x809
     Default Audio Device
 ```
 
-Find the audio card of the microfone and take note of its name, for instance `default:CARD=U0x46d0x809`. Then use GStreamer inside `runOnReady` to read the video stream, add audio and publish the new stream to another path:
+Find the audio card of the microfone and take note of its name, for instance `default:CARD=U0x46d0x809`. Then create a new path that takes the video stream from the camera and audio from the microphone:
 
 ```yml
 paths:
   cam:
     source: rpiCamera
-    runOnReady: >
+
+  cam_with_audio:
+    runOnInit: >
       gst-launch-1.0
       rtspclientsink name=s location=rtsp://localhost:$RTSP_PORT/cam_with_audio
-      rtspsrc location=rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH latency=0 ! rtph264depay ! s.
+      rtspsrc location=rtsp://127.0.0.1:$RTSP_PORT/cam latency=0 ! rtph264depay ! s.
       alsasrc device=default:CARD=U0x46d0x809 ! opusenc bitrate=16000 ! s.
-    runOnReadyRestart: yes
-  cam_with_audio:
+    runOnInitRestart: yes
 ```
 
 The resulting stream will be available in path `/cam_with_audio`.
@@ -610,7 +612,9 @@ WHIP is a WebRTC extensions that allows to publish streams by using a URL, witho
 http://localhost:8889/mystream/whip
 ```
 
-Depending on the network it may be difficult to establish a connection between server and clients, see [WebRTC-specific features](#webrtc-specific-features) for remediations.
+Regarding authentication, read [Authenticating with WHIP/WHEP](#authenticating-with-whipwhep).
+
+Depending on the network it may be difficult to establish a connection between server and clients, read [Solving WebRTC connectivity issues](#solving-webrtc-connectivity-issues).
 
 Known clients that can publish with WebRTC and WHIP are [FFmpeg](#ffmpeg), [GStreamer](#gstreamer), [OBS Studio](#obs-studio).
 
@@ -876,7 +880,9 @@ WHEP is a WebRTC extensions that allows to read streams by using a URL, without 
 http://localhost:8889/mystream/whep
 ```
 
-Depending on the network it may be difficult to establish a connection between server and clients, see [WebRTC-specific features](#webrtc-specific-features) for remediations.
+Regarding authentication, read [Authenticating with WHIP/WHEP](#authenticating-with-whipwhep).
+
+Depending on the network it may be difficult to establish a connection between server and clients, read [Solving WebRTC connectivity issues](#solving-webrtc-connectivity-issues).
 
 Known clients that can read with WebRTC and WHEP are [FFmpeg](#ffmpeg-1), [GStreamer](#gstreamer-1) and [web browsers](#web-browsers-1).
 
@@ -1118,7 +1124,7 @@ Authentication can be delegated to an external HTTP server:
 
 ```yml
 authMethod: http
-externalAuthenticationURL: http://myauthserver/auth
+authHTTPAddress: http://myauthserver/auth
 ```
 
 Each time a user needs to be authenticated, the specified URL will be requested with the POST method and this payload:
@@ -1141,7 +1147,7 @@ If the URL returns a status code that begins with `20` (i.e. `200`), authenticat
 ```json
 {
   "user": "",
-  "password": "",
+  "password": ""
 }
 ```
 
@@ -1165,9 +1171,10 @@ Authentication can be delegated to an external identity server, that is capable 
 ```yml
 authMethod: jwt
 authJWTJWKS: http://my_identity_server/jwks_endpoint
+authJWTClaimKey: mediamtx_permissions
 ```
 
-The JWT is expected to contain the `mediamtx_permissions` scope, with a list of permissions in the same format as the one of user permissions:
+The JWT is expected to contain a claim, with a list of permissions in the same format as the one of user permissions:
 
 ```json
 {
@@ -1180,10 +1187,18 @@ The JWT is expected to contain the `mediamtx_permissions` scope, with a list of 
 }
 ```
 
-Clients are expected to pass the JWT in query parameters, for instance:
+Clients are expected to pass the JWT in the Authorization header (in case of HLS and WebRTC) or in query parameters (in case of all other protocols), for instance:
 
 ```
 ffmpeg -re -stream_loop -1 -i file.ts -c copy -f rtsp rtsp://localhost:8554/mystream?jwt=MY_JWT
+```
+
+For instance (HLS):
+
+```
+GET /mypath/index.m3u8 HTTP/1.1
+Host: example.com
+Authorization: Bearer MY_JWT
 ```
 
 Here's a tutorial on how to setup the [Keycloak identity server](https://www.keycloak.org/) in order to provide such JWTs:
@@ -1336,16 +1351,18 @@ Where [mypath] is the name of a path. The server will return a list of timespans
 [
   {
     "start": "2006-01-02T15:04:05Z07:00",
-    "duration": "60.0"
+    "duration": "60.0",
+    "url": "http://localhost:9996/get?path=[mypath]&start=2006-01-02T15%3A04%3A05Z07%3A00&duration=60.0"
   },
   {
     "start": "2006-01-02T15:07:05Z07:00",
-    "duration": "32.33"
+    "duration": "32.33",
+    "url": "http://localhost:9996/get?path=[mypath]&start=2006-01-02T15%3A07%3A05Z07%3A00&duration=32.33"
   }
 ]
 ```
 
-The server provides an endpoint for downloading recordings:
+The server provides an endpoint to download recordings:
 
 ```
 http://localhost:9996/get?path=[mypath]&start=[start_date]&duration=[duration]&format=[format]
@@ -1361,7 +1378,7 @@ Where:
 All parameters must be [url-encoded](https://www.urlencoder.org/). For instance:
 
 ```
-http://localhost:9996/get?path=stream2&start=2024-01-14T16%3A33%3A17%2B00%3A00&duration=200.5
+http://localhost:9996/get?path=mypath&start=2024-01-14T16%3A33%3A17%2B00%3A00&duration=200.5
 ```
 
 The resulting stream uses the fMP4 format, that is natively compatible with any browser, therefore its URL can be directly inserted into a \<video> tag:
@@ -1669,6 +1686,7 @@ pathDefaults:
   # * G1, G2, ...: regular expression groups, if path name is
   #   a regular expression.
   # * MTX_SEGMENT_PATH: segment file path
+  # * MTX_SEGMENT_DURATION: segment duration
   runOnRecordSegmentComplete: curl http://my-custom-server/webhook?path=$MTX_PATH&segment_path=$MTX_SEGMENT_PATH
 ```
 
@@ -1829,7 +1847,35 @@ Where:
 
 ### WebRTC-specific features
 
-#### Connectivity issues
+#### Authenticating with WHIP/WHEP
+
+When using WHIP or WHEP to establish a WebRTC connection, there are multiple ways to provide credentials.
+
+If internal authentication or HTTP-based authentication is enabled, username and password can be passed through the `Authentication: Basic` header:
+
+```
+Authentication: Basic [base64_encoded_credentials]
+```
+
+Username and password can be also passed through the `Authentication: Bearer` header (since it's mandated by the specification):
+
+```
+Authentication: Bearer username:password
+```
+
+If JWT-based authentication is enabled, JWT can be passed through the `Authentication: Bearer` header:
+
+```
+Authentication: Bearer [jwt]
+```
+
+The JWT can also be passed through query parameters:
+
+```
+http://localhost:8889/mystream/whip?jwt=[jwt]
+```
+
+#### Solving WebRTC connectivity issues
 
 If the server is hosted inside a container or is behind a NAT, additional configuration is required in order to allow the two WebRTC parts (server and client) to establish a connection.
 
@@ -2003,27 +2049,6 @@ CGO_ENABLED=0 go build .
 
 The command will produce the `mediamtx` binary.
 
-### Raspberry Pi
-
-The server can be compiled with native support for the Raspberry Pi Camera. Compilation must be performed on a Raspberry Pi, with the following dependencies:
-
-* Go &ge; 1.22
-* `libcamera-dev`
-* `libfreetype-dev`
-* `xxd`
-
-Download the repository, open a terminal in it and run:
-
-```sh
-cd internal/protocols/rpicamera/exe
-make
-cd ../../../../
-go generate ./...
-go build -tags rpicamera .
-```
-
-The command will produce the `mediamtx` binary.
-
 ### OpenWrt
 
 The compilation procedure is the same as the standard one. On the OpenWrt device, install git and Go:
@@ -2109,7 +2134,7 @@ All the code in this repository is released under the [MIT License](LICENSE). Co
 |[RTSP / RTP / RTCP specifications](https://github.com/bluenviron/gortsplib#specifications)|RTSP|
 |[HLS specifications](https://github.com/bluenviron/gohlslib#specifications)|HLS|
 |[RTMP](https://rtmp.veriskope.com/pdf/rtmp_specification_1.0.pdf)|RTMP|
-|[Enhanced RTMP](https://raw.githubusercontent.com/veovera/enhanced-rtmp/main/enhanced-rtmp-v1.pdf)|RTMP|
+|[Enhanced RTMP v1](https://veovera.org/docs/enhanced/enhanced-rtmp-v1.pdf)|RTMP|
 |[Action Message Format](https://rtmp.veriskope.com/pdf/amf0-file-format-specification.pdf)|RTMP|
 |[WebRTC: Real-Time Communication in Browsers](https://www.w3.org/TR/webrtc/)|WebRTC|
 |[WebRTC HTTP Ingestion Protocol (WHIP)](https://datatracker.ietf.org/doc/draft-ietf-wish-whip/)|WebRTC|

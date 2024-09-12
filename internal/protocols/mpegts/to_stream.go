@@ -17,7 +17,7 @@ import (
 var ErrNoTracks = errors.New("no supported tracks found (supported are H265, H264," +
 	" MPEG-4 Video, MPEG-1/2 Video, Opus, MPEG-4 Audio, MPEG-1 Audio, AC-3")
 
-// ToStream converts a MPEG-TS stream to a server stream.
+// ToStream maps a MPEG-TS stream to a MediaMTX stream.
 func ToStream(r *mpegts.Reader, stream **stream.Stream) ([]*description.Media, error) {
 	var medias []*description.Media //nolint:prealloc
 
@@ -41,7 +41,7 @@ func ToStream(r *mpegts.Reader, stream **stream.Stream) ([]*description.Media, e
 				}},
 			}
 
-			r.OnDataH26x(track, func(pts int64, _ int64, au [][]byte) error {
+			r.OnDataH265(track, func(pts int64, _ int64, au [][]byte) error {
 				(*stream).WriteUnit(medi, medi.Formats[0], &unit.H265{
 					Base: unit.Base{
 						NTP: time.Now(),
@@ -61,7 +61,7 @@ func ToStream(r *mpegts.Reader, stream **stream.Stream) ([]*description.Media, e
 				}},
 			}
 
-			r.OnDataH26x(track, func(pts int64, _ int64, au [][]byte) error {
+			r.OnDataH264(track, func(pts int64, _ int64, au [][]byte) error {
 				(*stream).WriteUnit(medi, medi.Formats[0], &unit.H264{
 					Base: unit.Base{
 						NTP: time.Now(),
@@ -112,8 +112,8 @@ func ToStream(r *mpegts.Reader, stream **stream.Stream) ([]*description.Media, e
 			medi = &description.Media{
 				Type: description.MediaTypeAudio,
 				Formats: []format.Format{&format.Opus{
-					PayloadTyp: 96,
-					IsStereo:   (codec.ChannelCount >= 2),
+					PayloadTyp:   96,
+					ChannelCount: codec.ChannelCount,
 				}},
 			}
 

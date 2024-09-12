@@ -244,6 +244,64 @@ func TestReadTracks(t *testing.T) {
 						return buf
 					}(),
 				},
+				&message.Audio{
+					ChunkStreamID:   message.AudioChunkStreamID,
+					MessageStreamID: 0x1000000,
+					Codec:           message.CodecMPEG4Audio,
+					Rate:            message.Rate44100,
+					Depth:           message.Depth16,
+					IsStereo:        true,
+					AACType:         message.AudioAACTypeConfig,
+					Payload: func() []byte {
+						enc, err2 := mpeg4audio.Config{
+							Type:         2,
+							SampleRate:   44100,
+							ChannelCount: 2,
+						}.Marshal()
+						require.NoError(t, err2)
+						return enc
+					}(),
+				},
+			},
+		},
+		{
+			"h264 + aac, issue mediamtx/3301 (metadata without tracks)",
+			&format.H264{
+				PayloadTyp:        96,
+				SPS:               test.FormatH264.SPS,
+				PPS:               test.FormatH264.PPS,
+				PacketizationMode: 1,
+			},
+			&format.MPEG4Audio{
+				PayloadTyp: 96,
+				Config: &mpeg4audio.Config{
+					Type:         2,
+					SampleRate:   44100,
+					ChannelCount: 2,
+				},
+				SizeLength:       13,
+				IndexLength:      3,
+				IndexDeltaLength: 3,
+			},
+			[]message.Message{
+				&message.DataAMF0{
+					ChunkStreamID:   4,
+					MessageStreamID: 1,
+					Payload: []interface{}{
+						"@setDataFrame",
+						"onMetaData",
+						amf0.Object{
+							{
+								Key:   "metadatacreator",
+								Value: "Agora.io SDK",
+							},
+							{
+								Key:   "encoder",
+								Value: "Agora.io Encoder",
+							},
+						},
+					},
+				},
 				&message.Video{
 					ChunkStreamID:   message.VideoChunkStreamID,
 					MessageStreamID: 0x1000000,
@@ -329,6 +387,77 @@ func TestReadTracks(t *testing.T) {
 						return enc
 					}(),
 					DTS: 1 * time.Second,
+				},
+			},
+		},
+		{
+			"aac, issue mediamtx/3414 (empty audio payload)",
+			nil,
+			&format.MPEG4Audio{
+				PayloadTyp: 96,
+				Config: &mpeg4audio.Config{
+					Type:         2,
+					SampleRate:   44100,
+					ChannelCount: 2,
+				},
+				SizeLength:       13,
+				IndexLength:      3,
+				IndexDeltaLength: 3,
+			},
+			[]message.Message{
+				&message.DataAMF0{
+					ChunkStreamID:   4,
+					MessageStreamID: 1,
+					Payload: []interface{}{
+						"@setDataFrame",
+						"onMetaData",
+						amf0.Object{
+							{
+								Key:   "videodatarate",
+								Value: float64(0),
+							},
+							{
+								Key:   "videocodecid",
+								Value: float64(0),
+							},
+							{
+								Key:   "audiodatarate",
+								Value: float64(0),
+							},
+							{
+								Key:   "audiocodecid",
+								Value: float64(message.CodecMPEG4Audio),
+							},
+						},
+					},
+				},
+				&message.Audio{
+					ChunkStreamID:   message.AudioChunkStreamID,
+					MessageStreamID: 0x1000000,
+					Codec:           message.CodecMPEG4Audio,
+					Rate:            message.Rate44100,
+					Depth:           message.Depth16,
+					IsStereo:        true,
+					AACType:         message.AudioAACTypeConfig,
+					Payload:         nil,
+				},
+				&message.Audio{
+					ChunkStreamID:   message.AudioChunkStreamID,
+					MessageStreamID: 0x1000000,
+					Codec:           message.CodecMPEG4Audio,
+					Rate:            message.Rate44100,
+					Depth:           message.Depth16,
+					IsStereo:        true,
+					AACType:         message.AudioAACTypeConfig,
+					Payload: func() []byte {
+						enc, err2 := mpeg4audio.Config{
+							Type:         2,
+							SampleRate:   44100,
+							ChannelCount: 2,
+						}.Marshal()
+						require.NoError(t, err2)
+						return enc
+					}(),
 				},
 			},
 		},

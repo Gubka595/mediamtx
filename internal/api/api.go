@@ -10,7 +10,6 @@ import (
 	"os"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +22,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/defs"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/bluenviron/mediamtx/internal/protocols/httpp"
-	"github.com/bluenviron/mediamtx/internal/record"
+	"github.com/bluenviron/mediamtx/internal/recordstore"
 	"github.com/bluenviron/mediamtx/internal/restrictnetwork"
 	"github.com/bluenviron/mediamtx/internal/servers/hls"
 	"github.com/bluenviron/mediamtx/internal/servers/rtmp"
@@ -34,58 +33,6 @@ import (
 
 func interfaceIsEmpty(i interface{}) bool {
 	return reflect.ValueOf(i).Kind() != reflect.Ptr || reflect.ValueOf(i).IsNil()
-}
-
-func paginate2(itemsPtr interface{}, itemsPerPage int, page int) int {
-	ritems := reflect.ValueOf(itemsPtr).Elem()
-
-	itemsLen := ritems.Len()
-	if itemsLen == 0 {
-		return 0
-	}
-
-	pageCount := (itemsLen / itemsPerPage)
-	if (itemsLen % itemsPerPage) != 0 {
-		pageCount++
-	}
-
-	min := page * itemsPerPage
-	if min > itemsLen {
-		min = itemsLen
-	}
-
-	max := (page + 1) * itemsPerPage
-	if max > itemsLen {
-		max = itemsLen
-	}
-
-	ritems.Set(ritems.Slice(min, max))
-
-	return pageCount
-}
-
-func paginate(itemsPtr interface{}, itemsPerPageStr string, pageStr string) (int, error) {
-	itemsPerPage := 100
-
-	if itemsPerPageStr != "" {
-		tmp, err := strconv.ParseUint(itemsPerPageStr, 10, 31)
-		if err != nil {
-			return 0, err
-		}
-		itemsPerPage = int(tmp)
-	}
-
-	page := 0
-
-	if pageStr != "" {
-		tmp, err := strconv.ParseUint(pageStr, 10, 31)
-		if err != nil {
-			return 0, err
-		}
-		page = int(tmp)
-	}
-
-	return paginate2(itemsPtr, itemsPerPage, page), nil
 }
 
 func sortedKeys(paths map[string]*conf.Path) []string {
@@ -107,6 +54,27 @@ func paramName(ctx *gin.Context) (string, bool) {
 	}
 
 	return name[1:], true
+}
+
+func recordingsOfPath(
+	pathConf *conf.Path,
+	pathName string,
+) *defs.APIRecording {
+	ret := &defs.APIRecording{
+		Name: pathName,
+	}
+
+	segments, _ := recordstore.FindSegments(pathConf, pathName)
+
+	ret.Segments = make([]*defs.APIRecordingSegment, len(segments))
+
+	for i, seg := range segments {
+		ret.Segments[i] = &defs.APIRecordingSegment{
+			Start: seg.Start,
+		}
+	}
+
+	return ret
 }
 
 // PathManager contains methods used by the API and Metrics server.
@@ -190,6 +158,7 @@ func (a *API) Initialize() error {
 	router := gin.New()
 	router.SetTrustedProxies(a.TrustedProxies.ToTrustedProxies()) //nolint:errcheck
 
+	router.NoRoute(a.middlewareOrigin, a.middlewareAuth)
 	group := router.Group("/", a.middlewareOrigin, a.middlewareAuth)
 
 	group.GET("/v3/config/global/get", a.onConfigGlobalGet)
@@ -303,6 +272,15 @@ func (a *API) writeError(ctx *gin.Context, status int, err error) {
 func (a *API) middlewareOrigin(ctx *gin.Context) {
 	ctx.Writer.Header().Set("Access-Control-Allow-Origin", a.AllowOrigin)
 	ctx.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+
+	// preflight requests
+	if ctx.Request.Method == http.MethodOptions &&
+		ctx.Request.Header.Get("Access-Control-Request-Method") != "" {
+		ctx.Writer.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, POST, PATCH, DELETE")
+		ctx.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		ctx.AbortWithStatus(http.StatusNoContent)
+		return
+	}
 }
 
 func (a *API) middlewareAuth(ctx *gin.Context) {
@@ -1105,7 +1083,7 @@ func (a *API) onRecordingsList(ctx *gin.Context) {
 	c := a.Conf
 	a.mutex.RUnlock()
 
-	pathNames := getAllPathsWithRecordings(c.Paths)
+	pathNames := recordstore.FindAllPathsWithSegments(c.Paths)
 
 	data := defs.APIRecordingList{}
 
@@ -1120,8 +1098,8 @@ func (a *API) onRecordingsList(ctx *gin.Context) {
 	data.Items = make([]*defs.APIRecording, len(pathNames))
 
 	for i, pathName := range pathNames {
-		_, pathConf, _, _ := conf.FindPathConf(c.Paths, pathName)
-		data.Items[i] = recordingEntry(pathConf, pathName)
+		pathConf, _, _ := conf.FindPathConf(c.Paths, pathName)
+		data.Items[i] = recordingsOfPath(pathConf, pathName)
 	}
 
 	ctx.JSON(http.StatusOK, data)
@@ -1138,13 +1116,13 @@ func (a *API) onRecordingsGet(ctx *gin.Context) {
 	c := a.Conf
 	a.mutex.RUnlock()
 
-	_, pathConf, _, err := conf.FindPathConf(c.Paths, pathName)
+	pathConf, _, err := conf.FindPathConf(c.Paths, pathName)
 	if err != nil {
 		a.writeError(ctx, http.StatusBadRequest, err)
 		return
 	}
 
-	ctx.JSON(http.StatusOK, recordingEntry(pathConf, pathName))
+	ctx.JSON(http.StatusOK, recordingsOfPath(pathConf, pathName))
 }
 
 func (a *API) onRecordingDeleteSegment(ctx *gin.Context) {
@@ -1160,18 +1138,18 @@ func (a *API) onRecordingDeleteSegment(ctx *gin.Context) {
 	c := a.Conf
 	a.mutex.RUnlock()
 
-	_, pathConf, _, err := conf.FindPathConf(c.Paths, pathName)
+	pathConf, _, err := conf.FindPathConf(c.Paths, pathName)
 	if err != nil {
 		a.writeError(ctx, http.StatusBadRequest, err)
 		return
 	}
 
-	pathFormat := record.PathAddExtension(
+	pathFormat := recordstore.PathAddExtension(
 		strings.ReplaceAll(pathConf.RecordPath, "%path", pathName),
 		pathConf.RecordFormat,
 	)
 
-	segmentPath := record.Path{
+	segmentPath := recordstore.Path{
 		Start: start,
 	}.Encode(pathFormat)
 
